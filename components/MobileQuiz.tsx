@@ -8,6 +8,12 @@ import type { LeaderboardEntry } from "@/lib/rankingStore";
 
 type Phase = "intro" | "join" | "quiz" | "finish" | "ranking";
 
+type NetworkResponse = {
+  allowed: boolean;
+  wifiLock: boolean;
+  clientIp?: string;
+};
+
 type Option = {
   text: string;
   isCorrect: boolean;
@@ -85,6 +91,8 @@ export function MobileQuiz() {
   const [ranking, setRanking] = useState<LeaderboardEntry[]>([]);
   const [nickTouched, setNickTouched] = useState(false);
   const [lives, setLives] = useState(LIVES_START);
+  const [networkAllowed, setNetworkAllowed] = useState<boolean | null>(null);
+  const [networkLoading, setNetworkLoading] = useState(true);
 
   const progress = useMemo(() => Math.max(0, Math.min(100, (timeLeft / GAME_SECONDS) * 100)), [timeLeft]);
   const cleanNick = cleanNickValue(nick);
@@ -132,6 +140,21 @@ export function MobileQuiz() {
       void refreshRanking();
     }
   }, [phase, refreshRanking]);
+
+  useEffect(() => {
+    async function checkNetwork() {
+      try {
+        const response = await fetch("/api/network", { cache: "no-store" });
+        const data = (await response.json()) as NetworkResponse;
+        setNetworkAllowed(data.allowed);
+      } catch {
+        setNetworkAllowed(true);
+      } finally {
+        setNetworkLoading(false);
+      }
+    }
+    void checkNetwork();
+  }, []);
 
   function startGame(event?: FormEvent) {
     event?.preventDefault();
@@ -203,14 +226,25 @@ export function MobileQuiz() {
                 </p>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => setPhase("join")}
-              className="orange-button mx-auto mb-3 grid size-20 place-items-center rounded-[1.6rem] text-3xl font-black"
-              aria-label="Start"
-            >
-              »
-            </button>
+            {networkLoading ? (
+              <div className="mx-auto mb-3 grid size-20 place-items-center">
+                <span className="text-2xl">⏳</span>
+              </div>
+            ) : networkAllowed === false ? (
+              <div className="mx-auto mb-3 rounded-2xl border border-querion-orange/30 bg-querion-orange/10 p-4 text-center">
+                <p className="text-sm font-bold text-querion-orange">🔒 Quiz dostępny tylko w sieci WiFi Querion</p>
+                <p className="mt-1 text-xs text-white/60">Połącz się z naszą siecią, aby zagrać</p>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setPhase("join")}
+                className="orange-button mx-auto mb-3 grid size-20 place-items-center rounded-[1.6rem] text-3xl font-black"
+                aria-label="Start"
+              >
+                »
+              </button>
+            )}
           </div>
         )}
 
