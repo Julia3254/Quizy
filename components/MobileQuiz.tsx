@@ -30,6 +30,7 @@ type ScoreResponse = {
 
 const GAME_SECONDS = 90;
 const POINTS_FOR_CORRECT = 10;
+const LIVES_START = 3;
 
 function shuffle<T>(items: T[]) {
   return [...items].sort(() => Math.random() - 0.5);
@@ -83,6 +84,7 @@ export function MobileQuiz() {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [ranking, setRanking] = useState<LeaderboardEntry[]>([]);
   const [nickTouched, setNickTouched] = useState(false);
+  const [lives, setLives] = useState(LIVES_START);
 
   const progress = useMemo(() => Math.max(0, Math.min(100, (timeLeft / GAME_SECONDS) * 100)), [timeLeft]);
   const cleanNick = cleanNickValue(nick);
@@ -142,6 +144,7 @@ export function MobileQuiz() {
     setTimeLeft(GAME_SECONDS);
     setCurrentQuestion(firstQuestion);
     setSelectedIndex(null);
+    setLives(LIVES_START);
     setPhase("quiz");
   }
 
@@ -159,6 +162,15 @@ export function MobileQuiz() {
     }
 
     setAnsweredCount((current) => current + 1);
+
+    if (!selected?.isCorrect) {
+      const newLives = lives - 1;
+      setLives(newLives);
+      if (newLives <= 0) {
+        window.setTimeout(() => void finishQuiz(), 800);
+        return;
+      }
+    }
 
     window.setTimeout(() => {
       setCurrentQuestion((previous) => createPlayQuestion(previous.id));
@@ -187,7 +199,7 @@ export function MobileQuiz() {
               <h1 className="text-6xl font-black leading-[0.96] tracking-[-0.06em]">Gotowy na quiz?</h1>
               <div className="mt-8 rounded-[2rem] border border-white/10 bg-white/5 p-5 backdrop-blur">
                 <p className="text-lg font-bold leading-snug text-white/72">
-                  Masz 90 sekund. Za każdą dobrą odpowiedź dostajesz 10 punktów.
+                  Masz 90 sekund i 3 życia. Za każdą dobrą odpowiedź dostajesz 10 punktów, a za złą tracisz jedno życie.
                 </p>
               </div>
             </div>
@@ -257,7 +269,19 @@ export function MobileQuiz() {
         {phase === "quiz" && (
           <div className="flex min-h-[calc(100dvh-40px)] flex-col">
             <header className="pt-2 text-center">
-              <p className="text-sm font-black uppercase tracking-[0.22em] text-white/80">AI Quiz</p>
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-black uppercase tracking-[0.22em] text-white/80">AI Quiz</p>
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: LIVES_START }).map((_, index) => (
+                    <span
+                      key={index}
+                      className={`text-xl ${index < lives ? "text-querion-red" : "text-white/20"}`}
+                    >
+                      ♥
+                    </span>
+                  ))}
+                </div>
+              </div>
               <div className="mt-5 flex items-center gap-3">
                 <span className="w-12 text-left text-xs font-black text-white/70">{GAME_SECONDS - timeLeft}s</span>
                 <div className="h-3 flex-1 overflow-hidden rounded-full bg-white/10">
