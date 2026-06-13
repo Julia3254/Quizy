@@ -1,0 +1,107 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #080606;
+  --orange: #ff4b1f;
+  --orange-soft: #ff6a2a;
+  --red: #ff1f2f;
+  --panel: rgba(33, 13, 10, 0.72);
+  --text: #fff7f2;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--text);
+}
+
+body {
+  margin: 0;
+  overflow-x: hidden;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.querion-bg {
+  background:
+    radial-gradient(circle at 78% 38%, rgba(255, 75, 31, 0.62), transparent 32%),
+    radial-gradient(circle at 20% 82%, rgba(255, 75, 31, 0.28), transparent 28%),
+    radial-gradient(circle at 50% 5%, rgba(255, 255, 255, 0.08), transparent 25%),
+    linear-gradient(155deg, #050505 0%, #170807 45%, #070505 100%);
+}
+
+.querion-grain::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.12;
+  mix-blend-mode: screen;
+  background-image:
+    radial-gradient(circle at 20% 30%, rgba(255, 255, 255, 0.15) 0 1px, transparent 1px),
+    radial-gradient(circle at 80% 60%, rgba(255, 255, 255, 0.12) 0 1px, transparent 1px);
+  background-size: 18px 18px, 23px 23px;
+}
+
+.quiz-card {
+  background: linear-gradient(180deg, rgba(49, 20, 15, 0.88), rgba(23, 10, 8, 0.68));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.38);
+  backdrop-filter: blur(18px);
+}
+
+.orange-button {
+  background: linear-gradient(135deg, var(--orange), var(--orange-soft));
+  box-shadow: 0 0 35px rgba(255, 75, 31, 0.5);
+}
+
+.answer-button {
+  background: rgba(45, 21, 16, 0.76);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.answer-button:hover {
+  background: rgba(70, 29, 20, 0.9);
+}
+
+.answer-correct {
+  background: linear-gradient(135deg, #45ff1c, #17dc23) !important;
+  color: #071007 !important;
+}
+
+.answer-wrong {
+  background: linear-gradient(135deg, #ff1e27, #ff4b1f) !important;
+  color: white !important;
+}
+
+.tv-aspect {
+  min-height: 100dvh;
+}
+
+@media (min-width: 900px) {
+  .tv-aspect {
+    aspect-ratio: 9 / 16;
+    max-height: 100dvh;
+    min-height: 100dvh;
+    margin-inline: auto;
+  }
+}
