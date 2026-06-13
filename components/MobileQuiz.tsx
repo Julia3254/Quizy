@@ -2,7 +2,6 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { Leaderboard } from "@/components/Leaderboard";
-import { QUESTIONS, type QuizQuestion } from "@/data/questions";
 import { cleanNickValue, validateNick } from "@/lib/nickValidation";
 import type { LeaderboardEntry } from "@/lib/rankingStore";
 
@@ -14,87 +13,37 @@ type NetworkResponse = {
   clientIp?: string;
 };
 
-type Option = {
-  text: string;
-  isCorrect: boolean;
-};
-
-type PlayQuestion = QuizQuestion & {
-  options: Option[];
-};
-
 type RankingResponse = {
   ok: boolean;
   ranking?: LeaderboardEntry[];
 };
 
-type ScoreResponse = {
-  ok: boolean;
-  ranking?: LeaderboardEntry[];
-  message?: string;
+type QuestionData = {
+  id: number;
+  text: string;
+  answers: string[];
 };
 
-const GAME_SECONDS = 90;
-const POINTS_FOR_CORRECT = 10;
 const LIVES_START = 3;
-
-function shuffle<T>(items: T[]) {
-  return [...items].sort(() => Math.random() - 0.5);
-}
-
-function createPlayQuestion(previousId?: number): PlayQuestion {
-  const pool = QUESTIONS.length > 1 ? QUESTIONS.filter((question) => question.id !== previousId) : QUESTIONS;
-  const question = pool[Math.floor(Math.random() * pool.length)] ?? QUESTIONS[0];
-  const options = shuffle(
-    question.answers.map((text, index) => ({
-      text,
-      isCorrect: index === question.correctIndex
-    }))
-  );
-
-  return { ...question, options };
-}
-
-async function sendScore(nick: string, score: number): Promise<ScoreResponse | null> {
-  if (!nick.trim()) return null;
-
-  try {
-    const response = await fetch("/api/score", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-      body: JSON.stringify({ nick, score })
-    });
-
-    const data = (await response.json()) as ScoreResponse;
-
-    if (!response.ok || !data.ok) {
-      console.error(data.message ?? "Nie udało się zapisać wyniku.");
-      return null;
-    }
-
-    return data;
-  } catch (error) {
-    console.error(error);
-    return null;
-  }
-}
 
 export function MobileQuiz() {
   const [phase, setPhase] = useState<Phase>("intro");
   const [nick, setNick] = useState("");
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [score, setScore] = useState(0);
-  const [timeLeft, setTimeLeft] = useState(GAME_SECONDS);
+  const [timeLeft, setTimeLeft] = useState(90);
   const [answeredCount, setAnsweredCount] = useState(0);
-  const [currentQuestion, setCurrentQuestion] = useState<PlayQuestion>(() => createPlayQuestion());
+  const [currentQuestion, setCurrentQuestion] = useState<QuestionData | null>(null);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [ranking, setRanking] = useState<LeaderboardEntry[]>([]);
   const [nickTouched, setNickTouched] = useState(false);
   const [lives, setLives] = useState(LIVES_START);
   const [networkAllowed, setNetworkAllowed] = useState<boolean | null>(null);
   const [networkLoading, setNetworkLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [correctIndex, setCorrectIndex] = useState<number | null>(null);
 
-  const progress = useMemo(() => Math.max(0, Math.min(100, (timeLeft / GAME_SECONDS) * 100)), [timeLeft]);
+  const progress = useMemo(() => Math.max(0, Math.min(100, (timeLeft / 90) * 100)), [timeLeft]);
   const cleanNick = cleanNickValue(nick);
   const nickValidation = useMemo(() => validateNick(nick), [nick]);
   const canStart = nickValidation.ok;
@@ -109,31 +58,38 @@ export function MobileQuiz() {
     }
   }, []);
 
-  const finishQuiz = useCallback(async () => {
+  const finishQuiz = useCallback(async (finalScore?: number) => {
     setPhase("finish");
 
-    const result = await sendScore(cleanNick, score);
-    if (result?.ranking) {
-      setRanking(result.ranking);
-      return;
+    const scoreToSave = finalScore ?? score;
+
+    try {
+      await fetch("/api/score", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nick: cleanNick, score: scoreToSave }),
+      });
+    } catch (error) {
+      console.error("Failed to save score:", error);
     }
 
+    setSessionId(null);
     await refreshRanking();
   }, [cleanNick, refreshRanking, score]);
 
   useEffect(() => {
-    if (phase !== "quiz") return;
+    if (phase !== "quiz" || !sessionId) return;
     if (timeLeft <= 0) {
-      void finishQuiz();
+      void finishQuiz(score);
       return;
     }
 
     const timeout = window.setTimeout(() => {
-      setTimeLeft((current) => current - 1);
+      setTimeLeft((current) => Math.max(0, current - 1));
     }, 1000);
 
     return () => window.clearTimeout(timeout);
-  }, [finishQuiz, phase, timeLeft]);
+  }, [finishQuiz, phase, timeLeft, sessionId, score]);
 
   useEffect(() => {
     if (phase === "ranking") {
@@ -156,55 +112,121 @@ export function MobileQuiz() {
     void checkNetwork();
   }, []);
 
-  function startGame(event?: FormEvent) {
+  async function startGame(event?: FormEvent) {
     event?.preventDefault();
     setNickTouched(true);
     if (!canStart) return;
 
-    const firstQuestion = createPlayQuestion();
-    setScore(0);
-    setAnsweredCount(0);
-    setTimeLeft(GAME_SECONDS);
-    setCurrentQuestion(firstQuestion);
-    setSelectedIndex(null);
-    setLives(LIVES_START);
-    setPhase("quiz");
-  }
+    try {
+      const response = await fetch("/api/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nick: cleanNick }),
+      });
 
-  function answer(index: number) {
-    if (selectedIndex !== null || phase !== "quiz") return;
+      const data = (await response.json()) as {
+        ok: boolean;
+        sessionId?: string;
+        question?: QuestionData;
+        timeLeft?: number;
+        score?: number;
+      };
 
-    setSelectedIndex(index);
-    const selected = currentQuestion.options[index];
-    const nextScore = selected?.isCorrect ? score + POINTS_FOR_CORRECT : score;
-
-    if (selected?.isCorrect) {
-      setScore(nextScore);
-      void sendScore(cleanNick, nextScore);
-      if (typeof navigator !== "undefined" && "vibrate" in navigator) navigator.vibrate?.(40);
-    }
-
-    setAnsweredCount((current) => current + 1);
-
-    if (!selected?.isCorrect) {
-      const newLives = lives - 1;
-      setLives(newLives);
-      if (newLives <= 0) {
-        window.setTimeout(() => void finishQuiz(), 800);
+      if (!data.ok || !data.sessionId) {
+        console.error("Failed to create session");
         return;
       }
-    }
 
-    window.setTimeout(() => {
-      setCurrentQuestion((previous) => createPlayQuestion(previous.id));
+      setSessionId(data.sessionId);
+      setScore(data.score || 0);
+      setTimeLeft(data.timeLeft || 90);
+      setCurrentQuestion(data.question || null);
+      setCorrectIndex(null);
+      setAnsweredCount(0);
       setSelectedIndex(null);
-    }, 580);
+      setIsSubmitting(false);
+      setLives(LIVES_START);
+      setPhase("quiz");
+    } catch (error) {
+      console.error("Failed to start game:", error);
+    }
   }
 
-  function optionClass(option: Option, index: number) {
+  async function answer(index: number) {
+    if (selectedIndex !== null || phase !== "quiz" || isSubmitting || !sessionId || !currentQuestion) return;
+
+    setIsSubmitting(true);
+    setSelectedIndex(index);
+
+    const answerText = currentQuestion.answers[index];
+
+    try {
+      const response = await fetch("/api/session", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId,
+          answerText,
+        }),
+      });
+
+      const data = (await response.json()) as {
+        ok: boolean;
+        isCorrect?: boolean;
+        score?: number;
+        lives?: number;
+        correctIndex?: number;
+        gameOver?: boolean;
+        finalScore?: number;
+        question?: QuestionData;
+        timeLeft?: number;
+      };
+
+      if (!data.ok) {
+        setIsSubmitting(false);
+        return;
+      }
+
+      setScore(data.score || 0);
+      if (data.correctIndex !== undefined) {
+        setCorrectIndex(data.correctIndex);
+      }
+
+      if (data.lives !== undefined) {
+        setLives(data.lives);
+      }
+
+      if (data.isCorrect) {
+        if (typeof navigator !== "undefined" && "vibrate" in navigator) navigator.vibrate?.(40);
+      }
+
+      if (data.gameOver) {
+        window.setTimeout(() => {
+          setScore(data.finalScore || 0);
+          void finishQuiz(data.finalScore || 0);
+        }, 800);
+        return;
+      }
+
+      window.setTimeout(() => {
+        setCurrentQuestion(data.question || null);
+        setTimeLeft(data.timeLeft || 90);
+        setSelectedIndex(null);
+        setCorrectIndex(null);
+        setAnsweredCount((c) => c + 1);
+        setIsSubmitting(false);
+      }, 580);
+    } catch (error) {
+      console.error("Failed to submit answer:", error);
+      setIsSubmitting(false);
+    }
+  }
+
+  function optionClass(index: number) {
     if (selectedIndex === null) return "answer-button";
-    if (option.isCorrect) return "answer-correct";
-    if (selectedIndex === index && !option.isCorrect) return "answer-wrong";
+    if (correctIndex === null) return "answer-button";
+    if (correctIndex === index) return "answer-correct";
+    if (selectedIndex === index && correctIndex !== index) return "answer-wrong";
     return "answer-button opacity-45";
   }
 
@@ -317,7 +339,7 @@ export function MobileQuiz() {
                 </div>
               </div>
               <div className="mt-5 flex items-center gap-3">
-                <span className="w-12 text-left text-xs font-black text-white/70">{GAME_SECONDS - timeLeft}s</span>
+                <span className="w-12 text-left text-xs font-black text-white/70">{90 - timeLeft}s</span>
                 <div className="h-3 flex-1 overflow-hidden rounded-full bg-white/10">
                   <div className="h-full rounded-full bg-querion-orange shadow-glow transition-all duration-500" style={{ width: `${progress}%` }} />
                 </div>
@@ -339,7 +361,7 @@ export function MobileQuiz() {
 
             <section className="mt-auto pb-6 pt-10">
               <div className="mb-5 flex items-end justify-between gap-4">
-                <h2 className="max-w-[300px] text-4xl font-black leading-[1.02] tracking-[-0.05em]">{currentQuestion.question}</h2>
+                <h2 className="max-w-[300px] text-4xl font-black leading-[1.02] tracking-[-0.05em]">{currentQuestion.text}</h2>
                 <div className="rounded-2xl bg-white px-3 py-2 text-center text-querion-dark">
                   <div className="text-2xl font-black">{score}</div>
                   <div className="text-[10px] font-black uppercase">pkt</div>
@@ -347,22 +369,23 @@ export function MobileQuiz() {
               </div>
 
               <div className="space-y-3">
-                {currentQuestion.options.map((option, index) => (
+                {currentQuestion.answers.map((answerText, index) => (
                   <button
-                    key={`${currentQuestion.id}-${option.text}`}
+                    key={`${currentQuestion.id}-${answerText}`}
                     type="button"
                     onClick={() => answer(index)}
-                    className={`${optionClass(option, index)} flex w-full items-center gap-4 rounded-2xl px-5 py-4 text-left text-lg font-extrabold transition-all duration-200`}
+                    disabled={isSubmitting || selectedIndex !== null}
+                    className={`${optionClass(index)} flex w-full items-center gap-4 rounded-2xl px-5 py-4 text-left text-lg font-extrabold transition-all duration-200`}
                   >
                     <span className="grid size-4 shrink-0 place-items-center rounded-full bg-white" />
-                    <span>{option.text}</span>
+                    <span>{answerText}</span>
                   </button>
                 ))}
               </div>
 
               <button
                 type="button"
-                onClick={() => void finishQuiz()}
+                onClick={() => void finishQuiz(score)}
                 className="mt-5 w-full rounded-full border border-white/10 bg-white/10 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white/55"
               >
                 zakończ wcześniej
@@ -397,7 +420,7 @@ export function MobileQuiz() {
               <button type="button" onClick={() => setPhase("intro")} className="orange-button grid h-16 place-items-center rounded-2xl text-3xl font-black">
                 ⌂
               </button>
-              <button type="button" onClick={() => startGame()} className="orange-button grid h-16 place-items-center rounded-2xl text-3xl font-black">
+              <button type="button" onClick={() => void startGame()} className="orange-button grid h-16 place-items-center rounded-2xl text-3xl font-black">
                 ↻
               </button>
               <button type="button" onClick={() => setPhase("ranking")} className="orange-button grid h-16 place-items-center rounded-2xl text-3xl font-black">
@@ -418,7 +441,7 @@ export function MobileQuiz() {
             <section className="mt-8 flex-1 overflow-y-auto pb-6 no-scrollbar">
               <Leaderboard ranking={ranking} variant="mobile" />
             </section>
-            <button type="button" onClick={() => startGame()} className="orange-button mb-3 rounded-3xl px-6 py-5 text-lg font-black">
+            <button type="button" onClick={() => void startGame()} className="orange-button mb-3 rounded-3xl px-6 py-5 text-lg font-black">
               Zagraj jeszcze raz
             </button>
           </div>
