@@ -89,7 +89,47 @@ const FORBIDDEN_NICK_WORDS = [
   "pussy",
   "cunt",
   "cock",
-  "cum"
+  "cum",
+
+  "cwel",
+  "cwelu",
+  "pedal",
+  "pedał",
+  "pedzio",
+  "pedzior",
+  "pederasta",
+  "gej",
+  "ciota",
+  "lesba",
+  "faggot",
+  "fag",
+  "dyke",
+  "tranny",
+  "shemale",
+
+  "nigger",
+  "nigga",
+  "negro",
+  "neger",
+  "zyd",
+  "żyd",
+  "hitler",
+  "nazi",
+  "nazista",
+  "fck",
+  "fk",
+  "motherfcker",
+  "mf",
+  "retard",
+  "kys",
+  "kill",
+  "die",
+  "dead",
+  "death",
+  "suicide",
+  "slut",
+  "whore",
+  "hoe"
 ];
 
 const FORBIDDEN_NICK_EXACT = [
@@ -101,6 +141,16 @@ const FORBIDDEN_NICK_EXACT = [
   "unknown",
   "braknazwy",
   "braknazw"
+];
+
+const DANGEROUS_HTML_PATTERNS = [
+  /<[^>]+>/i,
+  /javascript:/i,
+  /on\w+\s*=/i,
+  /&#[x0-9a-f]+;/i,
+  /data:\s*text\/html/i,
+  /expression\s*\(/i,
+  /url\s*\(\s*['"]?javascript:/i
 ];
 
 function unique(values: string[]) {
@@ -212,7 +262,9 @@ function containsForbiddenWordFuzzy(variant: string, word: string) {
 
   if (word.length < 4) return false;
 
-  const maxDistance = word.length >= 5 ? 1 : 1;
+  const maxDistance = word.length <= 5 ? 0 : word.length <= 8 ? 1 : 2;
+
+  if (maxDistance === 0) return false;
 
   const minWindow = Math.max(3, word.length - maxDistance);
   const maxWindow = word.length + maxDistance;
@@ -272,7 +324,15 @@ export function validateNick(value: string) {
     return { ok: false, clean, message: "Ten nick jest niedozwolony. Wybierz inną nazwę." };
   }
 
+  if (containsDangerousHtml(clean)) {
+    return { ok: false, clean, message: "Nick zawiera niedozwolone znaki." };
+  }
+
   return { ok: true, clean, message: "" };
+}
+
+function containsDangerousHtml(value: string) {
+  return DANGEROUS_HTML_PATTERNS.some((pattern) => pattern.test(value));
 }
 
 export function isNickAllowed(value: string) {
