@@ -98,7 +98,7 @@ function normalizeZRangeRows(rows: unknown): LeaderboardEntry[] {
   return sortLeaderboard(entries);
 }
 
-export async function saveScore(rawNick: unknown, rawScore: unknown): Promise<SaveScoreResult> {
+export async function saveScore(rawNick: unknown, rawScore: unknown, force = false): Promise<SaveScoreResult> {
   const nick = sanitizeNick(rawNick);
   const submittedScore = normalizeScore(rawScore);
 
@@ -114,8 +114,8 @@ export async function saveScore(rawNick: unknown, rawScore: unknown): Promise<Sa
 
   if (redis) {
     const current = normalizeExistingScore(await redis.zscore(key, nick));
-    const bestScore = Math.max(submittedScore, current ?? 0);
-    const updated = current === null || submittedScore > current;
+    const bestScore = force ? submittedScore : Math.max(submittedScore, current ?? 0);
+    const updated = force || current === null || submittedScore > current;
 
     if (updated) {
       await redis.zadd(key, { score: submittedScore, member: nick });
@@ -138,8 +138,8 @@ export async function saveScore(rawNick: unknown, rawScore: unknown): Promise<Sa
   memoryStore[currentDate] = dailyMap;
 
   const current = dailyMap.get(nick) ?? null;
-  const bestScore = Math.max(submittedScore, current ?? 0);
-  const updated = current === null || submittedScore > current;
+  const bestScore = force ? submittedScore : Math.max(submittedScore, current ?? 0);
+  const updated = force || current === null || submittedScore > current;
 
   if (updated) dailyMap.set(nick, submittedScore);
 
