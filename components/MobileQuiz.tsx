@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import confetti from "canvas-confetti";
 import { Leaderboard } from "@/components/Leaderboard";
 import { cleanNickValue, validateNick } from "@/lib/nickValidation";
 import type { LeaderboardEntry } from "@/lib/rankingStore";
@@ -26,6 +27,24 @@ type QuestionData = {
 
 const LIVES_START = 3;
 
+function fireConfetti() {
+  const defaults = { spread: 360, ticks: 100, gravity: 0.8, decay: 0.94, startVelocity: 30 };
+  void confetti({
+    ...defaults,
+    particleCount: 50,
+    scalar: 1.2,
+    shapes: ["circle", "square"],
+    colors: ["#a864fd", "#29cdff", "#78ff44", "#ff718d", "#fdff6a"],
+  });
+  void confetti({
+    ...defaults,
+    particleCount: 30,
+    scalar: 2,
+    shapes: ["circle"],
+    colors: ["#ff0000", "#00ff00", "#0000ff"],
+  });
+}
+
 export function MobileQuiz() {
   const [phase, setPhase] = useState<Phase>("intro");
   const [nick, setNick] = useState("");
@@ -43,6 +62,13 @@ export function MobileQuiz() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [correctIndex, setCorrectIndex] = useState<number | null>(null);
   const [nickError, setNickError] = useState<string | null>(null);
+  const [shakeEffect, setShakeEffect] = useState(false);
+  const [correctAnswers, setCorrectAnswers] = useState(0);
+  const [maxStreak, setMaxStreak] = useState(0);
+  const [currentStreak, setCurrentStreak] = useState(0);
+  const [startTime, setStartTime] = useState<number | null>(null);
+  const [finalStats, setFinalStats] = useState<{correct: number; total: number; streak: number; time: number} | null>(null);
+  const lastNickRef = useRef<string>("");
 
   const progress = useMemo(() => Math.max(0, Math.min(100, (timeLeft / 90) * 100)), [timeLeft]);
   const cleanNick = cleanNickValue(nick);
@@ -59,10 +85,20 @@ export function MobileQuiz() {
     }
   }, []);
 
-  const finishQuiz = useCallback(async (finalScore?: number) => {
+  const finishQuiz = useCallback(async (finalScore?: number, correctCount?: number, maxStreakValue?: number, elapsedTime?: number) => {
     setPhase("finish");
 
     const scoreToSave = finalScore ?? score;
+    const totalAnswered = answeredCount + 1;
+    
+    if (correctCount !== undefined && maxStreakValue !== undefined && elapsedTime !== undefined) {
+      setFinalStats({
+        correct: correctCount,
+        total: totalAnswered,
+        streak: maxStreakValue,
+        time: elapsedTime
+      });
+    }
 
     try {
       await fetch("/api/score", {
@@ -76,12 +112,13 @@ export function MobileQuiz() {
 
     setSessionId(null);
     await refreshRanking();
-  }, [cleanNick, refreshRanking, score]);
+  }, [cleanNick, refreshRanking, score, answeredCount]);
 
   useEffect(() => {
     if (phase !== "quiz" || !sessionId) return;
     if (timeLeft <= 0) {
-      void finishQuiz(score);
+      const elapsedTime = startTime ? Math.floor((Date.now() - startTime) / 1000) : 0;
+      void finishQuiz(score, correctAnswers, maxStreak, elapsedTime);
       return;
     }
 
@@ -90,7 +127,7 @@ export function MobileQuiz() {
     }, 1000);
 
     return () => window.clearTimeout(timeout);
-  }, [finishQuiz, phase, timeLeft, sessionId, score]);
+  }, [finishQuiz, phase, timeLeft, sessionId, score, startTime, correctAnswers, maxStreak]);
 
   useEffect(() => {
     if (phase === "ranking") {
@@ -119,11 +156,13 @@ export function MobileQuiz() {
     setNickError(null);
     if (!canStart && !isReplay) return;
 
+    const nickToUse = isReplay && lastNickRef.current ? lastNickRef.current : cleanNick;
+
     try {
       const response = await fetch("/api/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nick: cleanNick, isReplay }),
+        body: JSON.stringify({ nick: nickToUse, isReplay }),
       });
 
       const data = (await response.json()) as {
@@ -145,6 +184,7 @@ export function MobileQuiz() {
         return;
       }
 
+      lastNickRef.current = cleanNick;
       setSessionId(data.sessionId);
       setScore(data.score || 0);
       setTimeLeft(data.timeLeft || 90);
@@ -154,6 +194,11 @@ export function MobileQuiz() {
       setSelectedIndex(null);
       setIsSubmitting(false);
       setLives(LIVES_START);
+      setCorrectAnswers(0);
+      setMaxStreak(0);
+      setCurrentStreak(0);
+      setStartTime(Date.now());
+      setFinalStats(null);
       setPhase("quiz");
     } catch (error) {
       console.error("Failed to start game:", error);
@@ -205,13 +250,30 @@ export function MobileQuiz() {
       }
 
       if (data.isCorrect) {
-        if (typeof navigator !== "undefined" && "vibrate" in navigator) navigator.vibrate?.(40);
+        if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+          navigator.vibrate(40);
+        }
+        void fireConfetti();
+        setCorrectAnswers((c) => c + 1);
+        setCurrentStreak((s) => {
+          const newStreak = s + 1;
+          setMaxStreak((m) => Math.max(m, newStreak));
+          return newStreak;
+        });
+      } else {
+        if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+          navigator.vibrate([60, 30, 60]);
+        }
+        setShakeEffect(true);
+        window.setTimeout(() => setShakeEffect(false), 500);
+        setCurrentStreak(0);
       }
 
       if (data.gameOver) {
         window.setTimeout(() => {
           setScore(data.finalScore || 0);
-          void finishQuiz(data.finalScore || 0);
+          const elapsedTime = startTime ? Math.floor((Date.now() - startTime) / 1000) : 0;
+          void finishQuiz(data.finalScore || 0, correctAnswers + (data.isCorrect ? 1 : 0), maxStreak, elapsedTime);
         }, 800);
         return;
       }
@@ -336,7 +398,7 @@ export function MobileQuiz() {
         )}
 
         {phase === "quiz" && (
-          <div className="flex min-h-[calc(100dvh-40px)] flex-col">
+          <div className={`flex min-h-[calc(100dvh-40px)] flex-col transition-transform duration-200 ${shakeEffect ? "animate-shake" : ""}`}>
             <header className="pt-2 text-center">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-black uppercase tracking-[0.22em] text-white/80">AI Quiz</p>
@@ -352,23 +414,20 @@ export function MobileQuiz() {
                 </div>
               </div>
               <div className="mt-5 flex items-center gap-3">
-                <span className="w-12 text-left text-xs font-black text-white/70">{90 - timeLeft}s</span>
+                <span className={`w-12 text-left text-xs font-black ${timeLeft <= 15 ? "text-querion-red animate-pulse-strong" : "text-white/70"}`}>{90 - timeLeft}s</span>
                 <div className="h-3 flex-1 overflow-hidden rounded-full bg-white/10">
-                  <div className="h-full rounded-full bg-querion-orange shadow-glow transition-all duration-500" style={{ width: `${progress}%` }} />
+                  <div className={`h-full rounded-full shadow-glow transition-all duration-500 ${timeLeft <= 15 ? "bg-querion-red animate-pulse-strong" : "bg-querion-orange"}`} style={{ width: `${progress}%` }} />
                 </div>
                 <span className="w-12 text-right text-xs font-black text-white/70">90s</span>
               </div>
-              <div className="mt-4 flex justify-center gap-2 overflow-x-auto pb-1 no-scrollbar">
-                {Array.from({ length: Math.min(10, Math.max(5, answeredCount + 1)) }).map((_, index) => (
-                  <span
-                    key={index}
-                    className={`grid size-8 shrink-0 place-items-center rounded-full text-xs font-black ${
-                      index === answeredCount ? "bg-querion-orange shadow-glow" : "bg-white/10 text-white/60"
-                    }`}
-                  >
-                    {index + 1}
-                  </span>
-                ))}
+              <div className="mt-4 flex items-center justify-center gap-3">
+                {answeredCount > 0 && (
+                  <span className="text-sm font-bold text-white/40">{answeredCount}</span>
+                )}
+                <span className="grid size-10 place-items-center rounded-full bg-querion-orange text-sm font-black shadow-glow">
+                  {answeredCount + 1}
+                </span>
+                <span className="text-sm font-bold text-white/40">{answeredCount + 2}</span>
               </div>
             </header>
 
@@ -398,7 +457,10 @@ export function MobileQuiz() {
 
               <button
                 type="button"
-                onClick={() => void finishQuiz(score)}
+                onClick={() => {
+                  const elapsedTime = startTime ? Math.floor((Date.now() - startTime) / 1000) : 0;
+                  void finishQuiz(score, correctAnswers, maxStreak, elapsedTime);
+                }}
                 className="mt-5 w-full rounded-full border border-white/10 bg-white/10 px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white/55"
               >
                 zakończ wcześniej
@@ -426,7 +488,25 @@ export function MobileQuiz() {
               <div className="relative z-10 mt-4 text-7xl font-black tracking-[-0.08em] text-querion-orange drop-shadow-[0_0_34px_rgba(255,75,31,.65)]">
                 {score}pkt
               </div>
-              <p className="mx-auto mt-8 max-w-xs text-lg leading-snug text-white/55">W dziennym rankingu zostaje zapisany Twój najlepszy wynik.</p>
+              
+              {finalStats && (
+                <div className="mx-auto mt-6 grid max-w-xs grid-cols-3 gap-3 rounded-2xl bg-white/5 p-4">
+                  <div className="text-center">
+                    <div className="text-2xl font-black text-white">{finalStats.correct} / {finalStats.total}</div>
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-white/50">poprawnych</div>
+                  </div>
+                  <div className="text-center border-x border-white/10">
+                    <div className="text-2xl font-black text-white">{finalStats.streak}</div>
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-white/50">najdłuższa seria</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-black text-white">{finalStats.time}s</div>
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-white/50">czas</div>
+                  </div>
+                </div>
+              )}
+              
+              <p className="mx-auto mt-6 max-w-xs text-lg leading-snug text-white/55">W dziennym rankingu zostaje zapisany Twój najlepszy wynik.</p>
             </section>
 
             <footer className="grid grid-cols-3 gap-4 pb-3">
