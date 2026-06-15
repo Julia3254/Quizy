@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { QUESTIONS } from "@/data/questions";
 import { validateNick } from "@/lib/nickValidation";
+import { getRanking } from "@/lib/rankingStore";
 
 type Session = {
   nick: string;
@@ -58,15 +59,30 @@ export async function POST(request: NextRequest) {
     enforceMaxSessions();
     
     const body = await request.json();
-    const { nick } = body;
+    const { nick, isReplay } = body;
 
     const nickValidation = validateNick(nick);
     if (!nickValidation.ok) {
       return NextResponse.json({ ok: false, message: "Invalid nick" }, { status: 400 });
     }
 
+    const trimmedNick = nick.trim();
+    
+    const activeSessionWithNick = [...sessions.values()].find(s => s.nick.trim() === trimmedNick);
+    if (activeSessionWithNick) {
+      return NextResponse.json({ ok: false, message: "Ktoś już gra z tym nickiem. Poczekaj lub wybierz inny." }, { status: 409 });
+    }
+    
+    if (!isReplay) {
+      const ranking = await getRanking(100);
+      const nickInRanking = ranking.some(entry => entry.nick.trim() === trimmedNick);
+      if (nickInRanking) {
+        return NextResponse.json({ ok: false, message: "Ten nick jest już zajęty. Wybierz inny." }, { status: 409 });
+      }
+    }
+
     const sessionId = generateSessionId();
-    const shuffledSource = shuffle(QUESTIONS).slice(0, 20);
+    const shuffledSource = shuffle(QUESTIONS);
     
     const questions = shuffledSource.map(q => {
       const shuffledAnswers = shuffle(q.answers.map((text, idx) => ({ text, idx })));
