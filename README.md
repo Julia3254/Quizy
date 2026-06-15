@@ -13,8 +13,11 @@ Aplikacja quizowa Next.js przeznaczona do pracy na dwóch ekranach:
 ## Funkcje
 
 - quiz z limitem czasu,
-- system żyć,
+- 100 pytań w losowej kolejności (nie powtarzają się w trakcie gry),
+- system żyć (3 życia, strata przy błędnej odpowiedzi),
 - serwerowe liczenie wyniku,
+- unikalne nicki (nie można użyć nicku już obecnego w rankingu),
+- powtórka gry możliwa na tym samym nicku po przegranej,
 - losowa kolejność odpowiedzi,
 - geofencing - ograniczenie dostępu do sieci WiFi,
 - zapis najlepszego wyniku danego nicku w danym dniu,
