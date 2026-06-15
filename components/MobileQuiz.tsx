@@ -42,6 +42,7 @@ export function MobileQuiz() {
   const [networkLoading, setNetworkLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [correctIndex, setCorrectIndex] = useState<number | null>(null);
+  const [nickError, setNickError] = useState<string | null>(null);
 
   const progress = useMemo(() => Math.max(0, Math.min(100, (timeLeft / 90) * 100)), [timeLeft]);
   const cleanNick = cleanNickValue(nick);
@@ -112,25 +113,32 @@ export function MobileQuiz() {
     void checkNetwork();
   }, []);
 
-  async function startGame(event?: FormEvent) {
+  async function startGame(event?: FormEvent, isReplay = false) {
     event?.preventDefault();
     setNickTouched(true);
-    if (!canStart) return;
+    setNickError(null);
+    if (!canStart && !isReplay) return;
 
     try {
       const response = await fetch("/api/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nick: cleanNick }),
+        body: JSON.stringify({ nick: cleanNick, isReplay }),
       });
 
       const data = (await response.json()) as {
         ok: boolean;
+        message?: string;
         sessionId?: string;
         question?: QuestionData;
         timeLeft?: number;
         score?: number;
       };
+
+      if (!response.ok) {
+        setNickError(data.message || "Nie udało się rozpocząć gry. Spróbuj ponownie.");
+        return;
+      }
 
       if (!data.ok || !data.sessionId) {
         console.error("Failed to create session");
@@ -290,6 +298,7 @@ export function MobileQuiz() {
                   onBlur={() => setNickTouched(true)}
                   onChange={(event) => {
                     setNick(event.target.value);
+                    setNickError(null);
                     if (!nickTouched) setNickTouched(true);
                   }}
                   placeholder="Wpisz nick"
@@ -302,7 +311,11 @@ export function MobileQuiz() {
                 />
               </label>
 
-              {nickTouched && !nickValidation.ok ? (
+              {nickError ? (
+                <p className="relative z-10 mt-3 rounded-2xl border border-red-400/25 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-100">
+                  {nickError}
+                </p>
+              ) : nickTouched && !nickValidation.ok ? (
                 <p className="relative z-10 mt-3 rounded-2xl border border-red-400/25 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-100">
                   {nickValidation.message}
                 </p>
@@ -420,7 +433,7 @@ export function MobileQuiz() {
               <button type="button" onClick={() => setPhase("intro")} className="orange-button grid h-16 place-items-center rounded-2xl text-3xl font-black">
                 ⌂
               </button>
-              <button type="button" onClick={() => void startGame()} className="orange-button grid h-16 place-items-center rounded-2xl text-3xl font-black">
+              <button type="button" onClick={() => void startGame(undefined, true)} className="orange-button grid h-16 place-items-center rounded-2xl text-3xl font-black">
                 ↻
               </button>
               <button type="button" onClick={() => setPhase("ranking")} className="orange-button grid h-16 place-items-center rounded-2xl text-3xl font-black">
@@ -441,7 +454,7 @@ export function MobileQuiz() {
             <section className="mt-8 flex-1 overflow-y-auto pb-6 no-scrollbar">
               <Leaderboard ranking={ranking} variant="mobile" />
             </section>
-            <button type="button" onClick={() => void startGame()} className="orange-button mb-3 rounded-3xl px-6 py-5 text-lg font-black">
+            <button type="button" onClick={() => void startGame(undefined, true)} className="orange-button mb-3 rounded-3xl px-6 py-5 text-lg font-black">
               Zagraj jeszcze raz
             </button>
           </div>
