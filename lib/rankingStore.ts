@@ -1,5 +1,6 @@
 import { Redis } from "@upstash/redis";
-import { getRankingKey, getWarsawDateKey } from "@/lib/date";
+import { getRankingKey, getWarsawDateKey, getWarsawWeekKey, getWarsawMonthKey } from "@/lib/date";
+import type { RankingPeriod } from "@/lib/date";
 import { cleanNickValue, isNickAllowed, validateNick } from "@/lib/nickValidation";
 
 export type LeaderboardEntry = {
@@ -16,6 +17,8 @@ type SaveScoreResult = {
   date: string;
   storage: "redis" | "memory";
 };
+
+export type { RankingPeriod };
 
 type MemoryStore = Record<string, Map<string, number>>;
 
@@ -110,18 +113,24 @@ export async function saveScore(rawNick: unknown, rawScore: unknown, force = fal
 
   const currentDate = getWarsawDateKey();
   const redis = getRedisClient();
-  const key = getRankingKey();
+  const dailyKey = getRankingKey(undefined, "daily");
+  const weeklyKey = getRankingKey(undefined, "weekly");
+  const monthlyKey = getRankingKey(undefined, "monthly");
 
   if (redis) {
-    const current = normalizeExistingScore(await redis.zscore(key, nick));
+    const current = normalizeExistingScore(await redis.zscore(dailyKey, nick));
     const bestScore = force ? submittedScore : Math.max(submittedScore, current ?? 0);
     const updated = force || current === null || submittedScore > current;
 
     if (updated) {
-      await redis.zadd(key, { score: submittedScore, member: nick });
+      await redis.zadd(dailyKey, { score: submittedScore, member: nick });
+      await redis.zadd(weeklyKey, { score: submittedScore, member: nick });
+      await redis.zadd(monthlyKey, { score: submittedScore, member: nick });
     }
 
-    await redis.expire(key, 60 * 60 * 36);
+    await redis.expire(dailyKey, 60 * 60 * 36);
+    await redis.expire(weeklyKey, 60 * 60 * 24 * 8);
+    await redis.expire(monthlyKey, 60 * 60 * 24 * 32);
 
     return {
       nick,
@@ -134,14 +143,27 @@ export async function saveScore(rawNick: unknown, rawScore: unknown, force = fal
     };
   }
 
+  const weekKey = `week:${getWarsawWeekKey()}`;
+  const monthKey = `month:${getWarsawMonthKey()}`;
+
   const dailyMap = memoryStore[currentDate] ?? new Map<string, number>();
   memoryStore[currentDate] = dailyMap;
+  const weeklyMap = memoryStore[weekKey] ?? new Map<string, number>();
+  memoryStore[weekKey] = weeklyMap;
+  const monthlyMap = memoryStore[monthKey] ?? new Map<string, number>();
+  memoryStore[monthKey] = monthlyMap;
 
   const current = dailyMap.get(nick) ?? null;
   const bestScore = force ? submittedScore : Math.max(submittedScore, current ?? 0);
   const updated = force || current === null || submittedScore > current;
 
-  if (updated) dailyMap.set(nick, submittedScore);
+  if (updated) {
+    dailyMap.set(nick, submittedScore);
+    const weekCurrent = weeklyMap.get(nick) ?? 0;
+    if (submittedScore > weekCurrent) weeklyMap.set(nick, submittedScore);
+    const monthCurrent = monthlyMap.get(nick) ?? 0;
+    if (submittedScore > monthCurrent) monthlyMap.set(nick, submittedScore);
+  }
 
   return {
     nick,
@@ -154,9 +176,9 @@ export async function saveScore(rawNick: unknown, rawScore: unknown, force = fal
   };
 }
 
-export async function getRanking(limit = 10): Promise<LeaderboardEntry[]> {
+export async function getRanking(limit = 10, period: RankingPeriod = "daily"): Promise<LeaderboardEntry[]> {
   const redis = getRedisClient();
-  const key = getRankingKey();
+  const key = getRankingKey(undefined, period);
 
   if (redis) {
     const fetchLimit = Math.max(limit * 5, 50);
@@ -168,9 +190,14 @@ export async function getRanking(limit = 10): Promise<LeaderboardEntry[]> {
     return normalizeZRangeRows(rows).slice(0, limit);
   }
 
-  const dailyMap = memoryStore[getWarsawDateKey()] ?? new Map<string, number>();
+  let memKey: string;
+  if (period === "weekly") memKey = `week:${getWarsawWeekKey()}`;
+  else if (period === "monthly") memKey = `month:${getWarsawMonthKey()}`;
+  else memKey = getWarsawDateKey();
+
+  const map = memoryStore[memKey] ?? new Map<string, number>();
   return sortLeaderboard(
-    [...dailyMap.entries()]
+    [...map.entries()]
       .filter(([nick]) => isNickAllowed(nick))
       .map(([nick, score]) => ({ nick, score }))
   ).slice(0, limit);
