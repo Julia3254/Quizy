@@ -5,6 +5,7 @@ import confetti from "canvas-confetti";
 import { Leaderboard } from "@/components/Leaderboard";
 import { cleanNickValue, validateNick } from "@/lib/nickValidation";
 import type { LeaderboardEntry } from "@/lib/rankingStore";
+import type { RankingPeriod } from "@/lib/date";
 
 type Phase = "intro" | "join" | "quiz" | "finish" | "ranking";
 
@@ -48,6 +49,7 @@ function fireConfetti() {
 export function MobileQuiz() {
   const [phase, setPhase] = useState<Phase>("intro");
   const [nick, setNick] = useState("");
+  const [email, setEmail] = useState("");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [score, setScore] = useState(0);
   const [timeLeft, setTimeLeft] = useState(90);
@@ -69,21 +71,29 @@ export function MobileQuiz() {
   const [startTime, setStartTime] = useState<number | null>(null);
   const [finalStats, setFinalStats] = useState<{correct: number; total: number; streak: number; time: number} | null>(null);
   const lastNickRef = useRef<string>("");
+  const [rankingPeriod, setRankingPeriod] = useState<RankingPeriod>("daily");
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [marketingAccepted, setMarketingAccepted] = useState(false);
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [emailValidating, setEmailValidating] = useState(false);
+  const [emailValid, setEmailValid] = useState(false);
+
+  const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
   const progress = useMemo(() => Math.max(0, Math.min(100, (timeLeft / 90) * 100)), [timeLeft]);
   const cleanNick = cleanNickValue(nick);
   const nickValidation = useMemo(() => validateNick(nick), [nick]);
-  const canStart = nickValidation.ok;
+  const canStart = nickValidation.ok && termsAccepted && emailValid;
 
-  const refreshRanking = useCallback(async () => {
+  const refreshRanking = useCallback(async (period: RankingPeriod = rankingPeriod) => {
     try {
-      const response = await fetch("/api/ranking", { cache: "no-store" });
+      const response = await fetch(`/api/ranking?period=${period}`, { cache: "no-store" });
       const data = (await response.json()) as RankingResponse;
       if (data.ok) setRanking(data.ranking ?? []);
     } catch (error) {
       console.error(error);
     }
-  }, []);
+  }, [rankingPeriod]);
 
   const finishQuiz = useCallback(async (finalScore?: number, correctCount?: number, maxStreakValue?: number, elapsedTime?: number) => {
     setPhase("finish");
@@ -100,19 +110,19 @@ export function MobileQuiz() {
       });
     }
 
-    try {
-      await fetch("/api/score", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nick: cleanNick, score: scoreToSave }),
-      });
-    } catch (error) {
-      console.error("Failed to save score:", error);
+    const currentSessionId = sessionId;
+
+    if (currentSessionId) {
+      try {
+        await fetch(`/api/session?sessionId=${currentSessionId}&saveScore=true`, { method: "DELETE" });
+      } catch (error) {
+        console.error("Failed to delete session:", error);
+      }
     }
 
     setSessionId(null);
     await refreshRanking();
-  }, [cleanNick, refreshRanking, score, answeredCount]);
+  }, [refreshRanking, score, answeredCount]);
 
   useEffect(() => {
     if (phase !== "quiz" || !sessionId) return;
@@ -131,9 +141,9 @@ export function MobileQuiz() {
 
   useEffect(() => {
     if (phase === "ranking") {
-      void refreshRanking();
+      void refreshRanking(rankingPeriod);
     }
-  }, [phase, refreshRanking]);
+  }, [phase, rankingPeriod, refreshRanking]);
 
   useEffect(() => {
     async function checkNetwork() {
@@ -373,6 +383,66 @@ export function MobileQuiz() {
                 />
               </label>
 
+              <label className="relative z-10 mt-3 block">
+                <span className="sr-only">Wpisz e-mail</span>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(event) => {
+                    setEmail(event.target.value);
+                    setEmailError(null);
+                    setEmailValid(false);
+                  }}
+                  onBlur={async () => {
+                    const trimmed = email.trim();
+                    if (!trimmed) return;
+                    if (!EMAIL_REGEX.test(trimmed)) {
+                      setEmailError("Nieprawidłowy format adresu e-mail.");
+                      setEmailValid(false);
+                      return;
+                    }
+                    setEmailValidating(true);
+                    setEmailError(null);
+                    try {
+                      const res = await fetch("/api/validate-email", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ email: trimmed }),
+                      });
+                      const data = await res.json() as { ok: boolean; message?: string };
+                      if (data.ok) {
+                        setEmailValid(true);
+                      } else {
+                        setEmailError(data.message ?? "Nieprawidłowy adres e-mail.");
+                        setEmailValid(false);
+                      }
+                    } catch {
+                      setEmailError("Nie udało się zweryfikować adresu e-mail.");
+                      setEmailValid(false);
+                    } finally {
+                      setEmailValidating(false);
+                    }
+                  }}
+                  placeholder="Wpisz e-mail"
+                  className={`w-full rounded-full border bg-white/10 px-6 py-5 text-base font-bold text-white outline-none placeholder:text-white/35 focus:ring-4 ${
+                    emailError
+                      ? "border-red-400 focus:border-red-400 focus:ring-red-500/20"
+                      : emailValid
+                      ? "border-green-400 focus:border-green-400 focus:ring-green-500/20"
+                      : "border-white/10 focus:border-querion-orange focus:ring-querion-orange/20"
+                  }`}
+                />
+              </label>
+              {emailValidating && (
+                <p className="relative z-10 mt-2 px-2 text-xs text-white/45">Weryfikowanie adresu e-mail…</p>
+              )}
+              {emailError && (
+                <p className="relative z-10 mt-2 rounded-2xl border border-red-400/25 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-100">{emailError}</p>
+              )}
+              {emailValid && !emailError && (
+                <p className="relative z-10 mt-2 px-2 text-xs text-green-400">✓ Adres e-mail zweryfikowany</p>
+              )}
+
               {nickError ? (
                 <p className="relative z-10 mt-3 rounded-2xl border border-red-400/25 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-100">
                   {nickError}
@@ -384,6 +454,61 @@ export function MobileQuiz() {
               ) : (
                 <p className="relative z-10 mt-3 px-2 text-sm text-white/45">Nick pojawi się na rankingu TV. Nie ma logowania.</p>
               )}
+
+              <div className="relative z-10 mt-5 flex flex-col gap-3">
+                <label className="flex cursor-pointer items-start gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setTermsAccepted((v) => !v)}
+                    className={`mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full border-2 transition-colors ${
+                      termsAccepted ? "border-querion-orange bg-querion-orange" : "border-white/30 bg-white/5"
+                    }`}
+                    aria-checked={termsAccepted}
+                    role="checkbox"
+                  >
+                    {termsAccepted && (
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                        <polyline points="2,6 5,9 10,3" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    )}
+                  </button>
+                  <span className="text-sm text-white/70">
+                    Akceptuję{" "}
+                    <a href="/regulamin" className="font-bold text-white/90 underline underline-offset-2">Regulamin quizu</a>
+                    {" "}i{" "}
+                    <a href="/polityka_prywatnosci" className="font-bold text-white/90 underline underline-offset-2">Politykę Prywatności</a> *
+                  </span>
+                </label>
+
+                <label className="flex cursor-pointer items-start gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setMarketingAccepted((v) => !v)}
+                    className={`mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full border-2 transition-colors ${
+                      marketingAccepted ? "border-querion-orange bg-querion-orange" : "border-white/30 bg-white/5"
+                    }`}
+                    aria-checked={marketingAccepted}
+                    role="checkbox"
+                  >
+                    {marketingAccepted && (
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                        <polyline points="2,6 5,9 10,3" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    )}
+                  </button>
+                  <span className="text-sm text-white/70">
+                    Zgadzam się na otrzymywanie informacji marketingowych na podany adres e-mail
+                    <span className="mt-0.5 block text-xs text-querion-orange/80">🎁 Zaznacz, aby otrzymać nagrody za wynik na e-mail</span>
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            <div className="px-1 pb-2">
+              <p className="text-[11px] leading-relaxed text-white/30">
+                Administratorem Twoich danych osobowych jest QUERION SURYNT SPÓŁKA KOMANDYTOWA. Dane przetwarzamy w celu przeprowadzenia quizu, a w przypadku wyrażenia zgody – również w celach marketingowych. Masz prawo do cofnięcia zgody w dowolnym momencie. Szczegóły znajdziesz w{" "}
+                <a href="/polityka_prywatnosci" className="underline underline-offset-2">Polityce Prywatności</a>.
+              </p>
             </div>
 
             <button
@@ -420,14 +545,27 @@ export function MobileQuiz() {
                 </div>
                 <span className="w-12 text-right text-xs font-black text-white/70">90s</span>
               </div>
-              <div className="mt-4 flex items-center justify-center gap-3">
-                {answeredCount > 0 && (
-                  <span className="text-sm font-bold text-white/40">{answeredCount}</span>
-                )}
-                <span className="grid size-10 place-items-center rounded-full bg-querion-orange text-sm font-black shadow-glow">
-                  {answeredCount + 1}
-                </span>
-                <span className="text-sm font-bold text-white/40">{answeredCount + 2}</span>
+              <div className="mt-4 flex items-center justify-between gap-1 overflow-hidden">
+                {[-3, -2, -1, 0, 1, 2, 3].map((offset) => {
+                  const num = answeredCount + 1 + offset;
+                  if (num < 1) return <span key={offset} className="w-8 shrink-0" />;
+                  const isCurrent = offset === 0;
+                  const distance = Math.abs(offset);
+                  const opacity = distance === 0 ? 1 : distance === 1 ? 0.45 : distance === 2 ? 0.2 : 0.08;
+                  return (
+                    <span
+                      key={offset}
+                      style={{ opacity }}
+                      className={`shrink-0 text-center font-black transition-all duration-300 ${
+                        isCurrent
+                          ? "grid size-10 place-items-center rounded-full bg-querion-orange text-sm shadow-glow"
+                          : distance === 1 ? "w-8 text-sm" : "w-6 text-xs"
+                      }`}
+                    >
+                      {num}
+                    </span>
+                  );
+                })}
               </div>
             </header>
 
@@ -506,7 +644,7 @@ export function MobileQuiz() {
                 </div>
               )}
               
-              <p className="mx-auto mt-6 max-w-xs text-lg leading-snug text-white/55">W dziennym rankingu zostaje zapisany Twój najlepszy wynik.</p>
+              <p className="mx-auto mt-6 max-w-xs text-lg leading-snug text-white/55">W rankingu zostaje zapisany Twój najlepszy wynik.</p>
             </section>
 
             <footer className="grid grid-cols-3 gap-4 pb-3">
@@ -516,8 +654,8 @@ export function MobileQuiz() {
               <button type="button" onClick={() => void startGame(undefined, true)} className="orange-button grid h-16 place-items-center rounded-2xl text-3xl font-black">
                 ↻
               </button>
-              <button type="button" onClick={() => setPhase("ranking")} className="orange-button grid h-16 place-items-center rounded-2xl text-3xl font-black">
-                ↗
+              <button type="button" onClick={() => setPhase("ranking")} className="orange-button grid h-16 place-items-center rounded-2xl font-black">
+                <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/></svg>
               </button>
             </footer>
           </div>
@@ -531,8 +669,24 @@ export function MobileQuiz() {
               </button>
               <span className="text-sm font-black uppercase tracking-[0.25em] text-white/45">AI Quiz</span>
             </header>
-            <section className="mt-8 flex-1 overflow-y-auto pb-6 no-scrollbar">
-              <Leaderboard ranking={ranking} variant="mobile" />
+            <div className="mt-5 flex gap-2">
+              {(["daily", "weekly", "monthly"] as RankingPeriod[]).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setRankingPeriod(p)}
+                  className={`flex-1 rounded-full py-2 text-xs font-black uppercase tracking-wider transition-colors ${
+                    rankingPeriod === p
+                      ? "bg-querion-orange text-white"
+                      : "bg-white/10 text-white/50"
+                  }`}
+                >
+                  {p === "daily" ? "Dziś" : p === "weekly" ? "Tydzień" : "Miesiąc"}
+                </button>
+              ))}
+            </div>
+            <section className="mt-4 flex-1 overflow-y-auto pb-6 no-scrollbar">
+              <Leaderboard ranking={ranking} variant="mobile" period={rankingPeriod} />
             </section>
             <button type="button" onClick={() => void startGame(undefined, true)} className="orange-button mb-3 rounded-3xl px-6 py-5 text-lg font-black">
               Zagraj jeszcze raz
