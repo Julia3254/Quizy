@@ -29,7 +29,7 @@ Aplikacja quizowa Next.js przeznaczona do pracy na dwóch ekranach:
 - zapis najlepszego wyniku danego nicku do rankingu dziennego, tygodniowego i miesięcznego,
 - rankingi dzienny, tygodniowy i miesięczny liczone według strefy `Europe/Warsaw`,
 - zakładki do przełączania rankingów w widoku mobilnym,
-- automatyczne cykliczne przełączanie rankingów na ekranie TV,
+- automatyczne cykliczne przełączanie rankingów na ekranie TV (dzienny 60s, tygodniowy 10s, miesięczny 10s),
 - walidacja e-maila po stronie klienta i serwera (format + rekord MX),
 - regulamin i polityka prywatności z linkami w formularzu zgody,
 - zgoda marketingowa z klauzulą RODO,
