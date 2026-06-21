@@ -1,8 +1,16 @@
 import type { LeaderboardEntry } from "@/lib/rankingStore";
+import type { RankingPeriod } from "@/lib/date";
 
 type Props = {
   ranking: LeaderboardEntry[];
   variant?: "tv" | "mobile";
+  period?: RankingPeriod;
+};
+
+const PERIOD_LABELS: Record<RankingPeriod, string> = {
+  daily: "Dzisiaj",
+  weekly: "Tygodniowo",
+  monthly: "Miesięcznie",
 };
 
 function sortRanking(ranking: LeaderboardEntry[]) {
@@ -14,7 +22,7 @@ function sortRanking(ranking: LeaderboardEntry[]) {
     });
 }
 
-export function Leaderboard({ ranking, variant = "tv" }: Props) {
+export function Leaderboard({ ranking, variant = "tv", period = "daily" }: Props) {
   const sortedRanking = sortRanking(ranking);
   const top = sortedRanking.slice(0, 3);
   const rest = sortedRanking.slice(3, 10);
@@ -27,7 +35,7 @@ export function Leaderboard({ ranking, variant = "tv" }: Props) {
     <section className="w-full">
       <div className="mb-4 text-center">
         <h2 className={variant === "tv" ? "text-4xl font-black" : "text-4xl font-black"}>Top wyników</h2>
-        <p className="mt-1 text-sm font-semibold uppercase tracking-[0.28em] text-white/45">dzisiaj</p>
+        <p className="mt-1 text-sm font-semibold uppercase tracking-[0.28em] text-white/45">{PERIOD_LABELS[period]}</p>
       </div>
 
       <div className="mx-auto flex w-full max-w-xl items-end justify-center gap-2 px-1">
