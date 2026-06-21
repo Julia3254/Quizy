@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+
 import { QUESTIONS } from "@/data/questions";
 import { validateNick } from "@/lib/nickValidation";
-import { getRanking } from "@/lib/rankingStore";
+import { getRanking, saveScore } from "@/lib/rankingStore";
 
 type Session = {
   nick: string;
@@ -153,6 +154,11 @@ export async function PATCH(request: NextRequest) {
     const gameOver = session.lives <= 0 || timeLeft <= 0 || session.currentQuestionIndex >= session.questions.length;
 
     if (gameOver) {
+      try {
+        await saveScore(session.nick, session.score);
+      } catch (error) {
+        console.error("Failed to save score on game over:", error);
+      }
       sessions.delete(sessionId);
       return NextResponse.json({
         ok: true,
@@ -180,6 +186,29 @@ export async function PATCH(request: NextRequest) {
       },
       timeLeft,
     });
+  } catch (error) {
+    return NextResponse.json({ ok: false, message: "Server error" }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const sessionId = searchParams.get("sessionId");
+    const saveScoreFlag = searchParams.get("saveScore") === "true";
+
+    if (sessionId) {
+      const session = sessions.get(sessionId);
+      if (saveScoreFlag && session) {
+        try {
+          await saveScore(session.nick, session.score);
+        } catch (error) {
+          console.error("Failed to save score on early finish:", error);
+        }
+      }
+      sessions.delete(sessionId);
+    }
+    return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json({ ok: false, message: "Server error" }, { status: 500 });
   }
