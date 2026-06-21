@@ -4,11 +4,13 @@ Aplikacja quizowa Next.js przeznaczona do pracy na dwóch ekranach:
 
 - `/tv` — widok ekranu głównego z rankingiem, ciekawostką i kodem QR,
 - `/play` — widok mobilny dla uczestników quizu,
-- `/api/session` — serwerowa sesja gry,
-- `/api/score` — zapis najlepszego wyniku gracza,
-- `/api/ranking` — pobieranie dziennego rankingu,
+- `/api/session` — serwerowa sesja gry (start, odpowiedź, zakończenie, zapis wyniku),
+- `/api/ranking` — pobieranie rankingu dziennego, tygodniowego lub miesięcznego,
+- `/api/validate-email` — walidacja adresu e-mail (format + rekord MX),
 - `/api/network` — sprawdzanie dostępu do sieci WiFi,
 - `/api/health` — podstawowy status aplikacji.
+- `/regulamin` — regulamin quizu,
+- `/polityka_prywatnosci` — polityka prywatności.
 
 ## Funkcje
 
@@ -24,8 +26,13 @@ Aplikacja quizowa Next.js przeznaczona do pracy na dwóch ekranach:
 - statystyki na koniec gry: poprawne odpowiedzi, najdłuższa seria, czas,
 - losowa kolejność odpowiedzi,
 - geofencing - ograniczenie dostępu do sieci WiFi,
-- zapis najlepszego wyniku danego nicku w danym dniu,
-- ranking dzienny liczony według strefy `Europe/Warsaw`,
+- zapis najlepszego wyniku danego nicku do rankingu dziennego, tygodniowego i miesięcznego,
+- rankingi dzienny, tygodniowy i miesięczny liczone według strefy `Europe/Warsaw`,
+- zakładki do przełączania rankingów w widoku mobilnym,
+- automatyczne cykliczne przełączanie rankingów na ekranie TV,
+- walidacja e-maila po stronie klienta i serwera (format + rekord MX),
+- regulamin i polityka prywatności z linkami w formularzu zgody,
+- zgoda marketingowa z klauzulą RODO,
 - filtrowanie niedozwolonych nicków przy zapisie i przy odczycie rankingu,
 - obsługa Upstash Redis na produkcji,
 - lokalny fallback w pamięci procesu, gdy Redis nie jest skonfigurowany.
@@ -86,6 +93,8 @@ Aplikacja implementuje serwerowe sesje gry, które uniemożliwiają oszukiwanie:
 - Klient wysyła tylko wybraną odpowiedź (tekst),
 - Serwer sprawdza poprawność i przyznaje punkty,
 - Sesja przechowuje stan gry (wynik, życia, pytania),
+- Zapis do rankingu następuje tylko przy usuwaniu istniejącej sesji (`gameOver` lub `saveScore=true` przy wcześniejszym zakończeniu),
+- Nie ma osobnego publicznego endpointu do zapisywania wyników — wynik podlega walidacji sesji,
 - Maksymalnie 500 aktywnych sesji w pamięci (auto-czyszczenie),
 - Odpowiedzi tasowane są raz na sesję (nie da się podejrzeć poprawnej).
 
@@ -107,13 +116,15 @@ https://querion-ai-quiz-mvp-ready.vercel.app
 ```txt
 app/          trasy Next.js i endpointy API
 ├── api/
-│   ├── session/      serwerowa sesja gry (POST=start, PATCH=odpowiedź)
-│   ├── score/        zapis najlepszego wyniku
-│   ├── ranking/      dzienny ranking
+│   ├── session/      serwerowa sesja gry (POST=start, PATCH=odpowiedź, DELETE=zakończenie)
+│   ├── ranking/      ranking dzienny/tygodniowy/miesięczny
+│   ├── validate-email/  walidacja e-maila
 │   └── network/      sprawdzanie dostępu sieciowego
+├── regulamin/        strona regulaminu
+└── polityka_prywatnosci/  strona polityki prywatności
 components/   komponenty interfejsu
 data/         pytania i ciekawostki
-lib/          logika pomocnicza, ranking i walidacja nicków
+lib/          logika pomocnicza, ranking, daty i walidacja nicków
 middleware.ts geofencing (sprawdzanie IP przy wejściu)
 ```
 
