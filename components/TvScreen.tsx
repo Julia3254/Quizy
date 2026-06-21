@@ -20,7 +20,11 @@ const PERIOD_LABELS: Record<RankingPeriod, string> = {
   weekly: "Tygodniowo",
   monthly: "Miesięcznie",
 };
-const CYCLE_INTERVAL = 10000;
+const PERIOD_INTERVALS: Record<RankingPeriod, number> = {
+  daily: 60000,
+  weekly: 10000,
+  monthly: 10000,
+};
 
 export function TvScreen() {
   const [ranking, setRanking] = useState<LeaderboardEntry[]>([]);
@@ -58,15 +62,15 @@ export function TvScreen() {
   }, [refreshRanking, currentPeriod]);
 
   useEffect(() => {
-    const cycle = window.setInterval(() => {
+    const timer = window.setTimeout(() => {
       setAnimating(true);
       window.setTimeout(() => {
         setPeriodIndex((i) => (i + 1) % PERIODS.length);
         setAnimating(false);
       }, 400);
-    }, CYCLE_INTERVAL);
-    return () => window.clearInterval(cycle);
-  }, []);
+    }, PERIOD_INTERVALS[currentPeriod]);
+    return () => window.clearTimeout(timer);
+  }, [currentPeriod]);
 
   return (
     <main className="querion-bg querion-grain tv-aspect relative overflow-hidden px-6 py-6 text-white">
