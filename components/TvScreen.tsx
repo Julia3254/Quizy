@@ -21,9 +21,9 @@ const PERIOD_LABELS: Record<RankingPeriod, string> = {
   monthly: "Miesięcznie",
 };
 const PERIOD_INTERVALS: Record<RankingPeriod, number> = {
-  daily: 60000,
-  weekly: 10000,
-  monthly: 10000,
+  daily: 50000,
+  weekly: 20000,
+  monthly: 20000,
 };
 
 export function TvScreen() {
