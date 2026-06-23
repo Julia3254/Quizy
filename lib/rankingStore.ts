@@ -1,5 +1,13 @@
 import { Redis } from "@upstash/redis";
-import { getRankingKey, getWarsawDateKey, getWarsawWeekKey, getWarsawMonthKey } from "@/lib/date";
+import {
+  getRankingKey,
+  getSecondsUntilMidnightWarsaw,
+  getSecondsUntilNextMondayMidnightWarsaw,
+  getSecondsUntilNextMonthFirstMidnightWarsaw,
+  getWarsawDateKey,
+  getWarsawWeekKey,
+  getWarsawMonthKey
+} from "@/lib/date";
 import type { RankingPeriod } from "@/lib/date";
 import { cleanNickValue, isNickAllowed, validateNick } from "@/lib/nickValidation";
 
@@ -128,9 +136,12 @@ export async function saveScore(rawNick: unknown, rawScore: unknown, force = fal
       await redis.zadd(monthlyKey, { score: submittedScore, member: nick });
     }
 
-    await redis.expire(dailyKey, 60 * 60 * 36);
-    await redis.expire(weeklyKey, 60 * 60 * 24 * 8);
-    await redis.expire(monthlyKey, 60 * 60 * 24 * 32);
+    const dailyTtl = getSecondsUntilMidnightWarsaw() + 60 * 60;
+    const weeklyTtl = getSecondsUntilNextMondayMidnightWarsaw() + 60 * 60;
+    const monthlyTtl = getSecondsUntilNextMonthFirstMidnightWarsaw() + 60 * 60;
+    await redis.expire(dailyKey, dailyTtl);
+    await redis.expire(weeklyKey, weeklyTtl);
+    await redis.expire(monthlyKey, monthlyTtl);
 
     return {
       nick,
