@@ -27,15 +27,16 @@ Aplikacja quizowa Next.js przeznaczona do pracy na dwóch ekranach:
 - losowa kolejność odpowiedzi,
 - geofencing - ograniczenie dostępu do sieci WiFi,
 - zapis najlepszego wyniku danego nicku do rankingu dziennego, tygodniowego i miesięcznego,
-- rankingi dzienny, tygodniowy i miesięczny liczone według strefy `Europe/Warsaw`,
+- rankingi dzienny, tygodniowy i miesięczny liczone według strefy `Europe/Warsaw` i resetowane o północy (odpowiednio: codziennie, w poniedziałek, 1. dnia miesiąca),
+- dynamiczne TTL w Redis wyrównane do końca okresu rankingowego, aby rankingi nie znikały przedwcześnie w ciągu dnia,
 - zakładki do przełączania rankingów w widoku mobilnym,
 - automatyczne cykliczne przełączanie rankingów na ekranie TV (dzienny 60s, tygodniowy 10s, miesięczny 10s),
 - walidacja e-maila po stronie klienta i serwera (format + rekord MX),
 - regulamin i polityka prywatności z linkami w formularzu zgody,
 - zgoda marketingowa z klauzulą RODO,
 - filtrowanie niedozwolonych nicków przy zapisie i przy odczycie rankingu,
-- obsługa Upstash Redis na produkcji,
-- lokalny fallback w pamięci procesu, gdy Redis nie jest skonfigurowany.
+- obsługa Upstash Redis na produkcji (wymagane do niezawodnego resetu rankingów o północy),
+- lokalny fallback w pamięci procesu — tylko do developmentu; nie gwarantuje trwałości danych na Vercel.
 
 ## Uruchomienie lokalne
 
@@ -97,6 +98,16 @@ Aplikacja implementuje serwerowe sesje gry, które uniemożliwiają oszukiwanie:
 - Nie ma osobnego publicznego endpointu do zapisywania wyników — wynik podlega walidacji sesji,
 - Maksymalnie 500 aktywnych sesji w pamięci (auto-czyszczenie),
 - Odpowiedzi tasowane są raz na sesję (nie da się podejrzeć poprawnej).
+
+## Reset rankingów
+
+Rankingi resetują się automatycznie o północy w strefie czasowej `Europe/Warsaw`:
+
+- **dzienny** — co północ,
+- **tygodniowy** — w poniedziałek o północy (tydzień: poniedziałek–niedziela),
+- **miesięczny** — 1. dnia miesiąca o północy.
+
+Klucze Redis mają dynamiczne TTL wyrównane do tych granic, więc dane nie znikają przed końcem okresu. Do niezawodnego działania na produkcji wymagana jest konfiguracja Redis (`UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN`). Fallback w pamięci procesu działa tylko lokalnie i może gubić dane po restarcie instancji Vercel.
 
 ## Deploy
 
