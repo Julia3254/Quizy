@@ -522,7 +522,7 @@ export function MobileQuiz() {
           </form>
         )}
 
-        {phase === "quiz" && (
+        {phase === "quiz" && currentQuestion && (
           <div className={`flex min-h-[calc(100dvh-40px)] flex-col transition-transform duration-200 ${shakeEffect ? "animate-shake" : ""}`}>
             <header className="pt-2 text-center">
               <div className="flex items-center justify-between">
@@ -571,7 +571,7 @@ export function MobileQuiz() {
 
             <section className="mt-auto pb-6 pt-10">
               <div className="mb-5 flex items-end justify-between gap-4">
-                <h2 className="max-w-[300px] text-4xl font-black leading-[1.02] tracking-[-0.05em]">{currentQuestion.text}</h2>
+                <h2 className="max-w-[300px] text-4xl font-black leading-[1.02] tracking-[-0.05em]">{currentQuestion?.text}</h2>
                 <div className="rounded-2xl bg-white px-3 py-2 text-center text-querion-dark">
                   <div className="text-2xl font-black">{score}</div>
                   <div className="text-[10px] font-black uppercase">pkt</div>
@@ -579,9 +579,9 @@ export function MobileQuiz() {
               </div>
 
               <div className="space-y-3">
-                {currentQuestion.answers.map((answerText, index) => (
+                {currentQuestion?.answers.map((answerText, index) => (
                   <button
-                    key={`${currentQuestion.id}-${answerText}`}
+                    key={`${currentQuestion?.id}-${answerText}`}
                     type="button"
                     onClick={() => answer(index)}
                     disabled={isSubmitting || selectedIndex !== null}
