@@ -1,0 +1,22 @@
+Do zrobienia
+- tłumaczenie w przyszłości
+- wysyłanie kodu potwierdzającego e-mail ponieważ gdy użytkownik wróci to nie będzie się mógł zalogować ponownie na swoje konto.
+
+
+
+
+
+
+
+zrobione:
+
+- Validacja kodu html w nicku
+- dodanie logiki żyć. 3 życia na gre
+- dodane zabezpieczenie by quiz działał tylko po wybranych ip
+- implementacja nowego endpointu session. Cała logika liczenia punktów, żyć, pozostałego czasu, losowania pytań oraz poprawnych odpowiedzi
+- validacja nicków powtarzających się w rankingu. jest możliwość powtórzenia gry na tym samym nicku grająć jeszcze raz (bez wpisywania nicku)
+- poprawiony licznik pytań
+- licznik wraz z paskiem czasu pulsuje na czerwono na ostatnie 15s
+- animacje przy poprawnej i niepoprawnej odpowiedzi (konfetti/shake)
+- po przegranej wyświetlają się statystyki
+- poprawienie licznika pytań by pasował do wizualizacji Bartka?

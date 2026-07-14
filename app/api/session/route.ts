@@ -1,0 +1,211 @@
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+
+import { QUESTIONS } from "@/data/questions";
+import { validateNick } from "@/lib/nickValidation";
+import { getRanking, saveScore, type RankingPeriod } from "@/lib/rankingStore";
+import { shuffle, generateSessionId, evaluateAnswer } from "@/lib/quizLogic";
+
+type Session = {
+  nick: string;
+  score: number;
+  lives: number;
+  questions: {
+    id: number;
+    text: string;
+    answers: string[];
+    correctIndex: number;
+  }[];
+  currentQuestionIndex: number;
+  startTime: number;
+  answeredCount: number;
+};
+
+const sessions = new Map<string, Session>();
+
+const SESSION_TIMEOUT = 5 * 60 * 1000;
+const MAX_SESSIONS = 500;
+
+function cleanupOldSessions() {
+  const now = Date.now();
+  for (const [id, session] of sessions) {
+    if (now - session.startTime > SESSION_TIMEOUT) {
+      sessions.delete(id);
+    }
+  }
+}
+
+function enforceMaxSessions() {
+  if (sessions.size > MAX_SESSIONS) {
+    const sorted = [...sessions.entries()].sort((a, b) => a[1].startTime - b[1].startTime);
+    const toDelete = sorted.slice(0, sessions.size - MAX_SESSIONS);
+    for (const [id] of toDelete) {
+      sessions.delete(id);
+    }
+  }
+}
+
+async function isNickInAnyRanking(nick: string, limit = 100): Promise<boolean> {
+  const periods: RankingPeriod[] = ["daily", "weekly", "monthly"];
+  const rankings = await Promise.all(periods.map((period) => getRanking(limit, period)));
+  return rankings.some((ranking) => ranking.some((entry) => entry.nick.trim() === nick.trim()));
+}
+
+export const dynamic = "force-dynamic";
+
+export async function POST(request: NextRequest) {
+  try {
+    cleanupOldSessions();
+    enforceMaxSessions();
+    
+    const body = await request.json();
+    const { nick, isReplay } = body;
+
+    const nickValidation = validateNick(nick);
+    if (!nickValidation.ok) {
+      return NextResponse.json({ ok: false, message: "Invalid nick" }, { status: 400 });
+    }
+
+    const trimmedNick = nick.trim();
+    
+    const activeSessionWithNick = [...sessions.values()].find(s => s.nick.trim() === trimmedNick);
+    if (activeSessionWithNick) {
+      return NextResponse.json({ ok: false, message: "Ktoś już gra z tym nickiem. Poczekaj lub wybierz inny." }, { status: 409 });
+    }
+    
+    if (!isReplay) {
+      const nickInRanking = await isNickInAnyRanking(trimmedNick, 100);
+      if (nickInRanking) {
+        return NextResponse.json({ ok: false, message: "Ten nick jest już zajęty. Wybierz inny." }, { status: 409 });
+      }
+    }
+
+    const sessionId = generateSessionId();
+    const shuffledSource = shuffle(QUESTIONS);
+    
+    const questions = shuffledSource.map(q => {
+      const shuffledAnswers = shuffle(q.answers.map((text, idx) => ({ text, idx })));
+      return {
+        id: q.id,
+        text: q.question,
+        answers: shuffledAnswers.map(a => a.text),
+        correctIndex: shuffledAnswers.findIndex(a => a.idx === q.correctIndex),
+      };
+    });
+    
+    sessions.set(sessionId, {
+      nick,
+      score: 0,
+      lives: 3,
+      questions,
+      currentQuestionIndex: 0,
+      startTime: Date.now(),
+      answeredCount: 0,
+    });
+
+    const firstQuestion = questions[0];
+
+    return NextResponse.json({
+      ok: true,
+      sessionId,
+      question: {
+        id: firstQuestion.id,
+        text: firstQuestion.text,
+        answers: firstQuestion.answers,
+      },
+      timeLeft: 90,
+      score: 0,
+    });
+  } catch (error) {
+    return NextResponse.json({ ok: false, message: "Server error" }, { status: 500 });
+  }
+}
+
+export async function PATCH(request: NextRequest) {
+  try {
+    cleanupOldSessions();
+    const body = await request.json();
+    const { sessionId, answerText } = body;
+
+    const session = sessions.get(sessionId);
+    if (!session) {
+      return NextResponse.json({ ok: false, message: "Session not found" }, { status: 404 });
+    }
+
+    const result = evaluateAnswer(session, answerText);
+    if (!result) {
+      return NextResponse.json({ ok: false, message: "Question not found" }, { status: 404 });
+    }
+
+    session.score = result.score;
+    session.lives = result.lives;
+    session.answeredCount = result.answeredCount;
+    session.currentQuestionIndex = result.currentQuestionIndex;
+
+    const { isCorrect, timeLeft, gameOver, correctIndex } = result;
+
+    if (gameOver) {
+      try {
+        await saveScore(session.nick, session.score);
+      } catch (error) {
+        console.error("Failed to save score on game over:", error);
+      }
+      sessions.delete(sessionId);
+      return NextResponse.json({
+        ok: true,
+        isCorrect,
+        score: session.score,
+        lives: session.lives,
+        gameOver: true,
+        finalScore: session.score,
+      });
+    }
+
+    const answeredQuestion = session.questions[session.currentQuestionIndex - 1];
+    const nextQuestion = session.questions[session.currentQuestionIndex];
+
+    return NextResponse.json({
+      ok: true,
+      isCorrect,
+      score: session.score,
+      lives: session.lives,
+      correctIndex,
+      gameOver: false,
+      question: {
+        id: nextQuestion.id,
+        text: nextQuestion.text,
+        answers: nextQuestion.answers,
+      },
+      timeLeft,
+    });
+  } catch (error) {
+    return NextResponse.json({ ok: false, message: "Server error" }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const sessionId = searchParams.get("sessionId");
+    const saveScoreFlag = searchParams.get("saveScore") === "true";
+
+    if (sessionId) {
+      const session = sessions.get(sessionId);
+      if (saveScoreFlag && session) {
+        try {
+          await saveScore(session.nick, session.score);
+        } catch (error) {
+          console.error("Failed to save score on early finish:", error);
+        }
+      }
+      sessions.delete(sessionId);
+    }
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    return NextResponse.json({ ok: false, message: "Server error" }, { status: 500 });
+  }
+}
+
+export function resetSessions() {
+  sessions.clear();
+}
